@@ -105,7 +105,6 @@ rule call_rsvab:
     params:
         mincov=0.8,
         minratio=0.95,
-        metadata=config['nsmetadata'],
         outprefix='results/summary/final'
     shell:
         """
