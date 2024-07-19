@@ -17,15 +17,12 @@ localrules: all, get_ivar_report
 
 rule all:
     input:
-        alignstats=lambda _: expand('results/summary/{target}_alignstats.txt',target=get_valid_targets() ),
         ivar=lambda _: expand("results/summary/{target}_consensus.fasta",target=get_valid_targets() ),
         bcf=lambda _: expand("results/summary/{target}_genotype-summary.txt",target=get_valid_targets() ),
         finalcalls='results/summary/final_calls.txt',
         finalstats='results/summary/final_alignstats.txt',
         ampdepths=lambda _: expand("results/summary/{target}_stats",target=get_valid_targets() ),
         
-
-
 
 
 include: "rules/mash.smk"
@@ -94,13 +91,11 @@ rule get_genotyping_report:
         python scripts/get_pi_ranges.py --vcf {input.ivariants_untrim} --bed {input.primers} --out {params.prefix_untrim}
         """
 
-rule call_rsvab:
+rule merge_alignstats:
     input:
         alignstats=lambda _: expand('results/summary/{target}_alignstats.txt',target=get_valid_targets()),
     output:
-        catstats=temporary('results/summary/cat_alignstats.txt'),
-        alignstats='results/summary/final_alignstats.txt',
-        calls='results/summary/final_calls.txt'
+        catstats='results/summary/final_alignstats.txt'),
     container: "docker://sethnr/pgcoe_analysis:0.01"
     params:
         mincov=0.8,
@@ -109,10 +104,28 @@ rule call_rsvab:
     shell:
         """
         cat {input.alignstats} > {output.catstats}
-
-        python scripts/call_RSVAB.py -i {output.catstats} \
-                -c {params.mincov} \
-                -r {params.minratio} \
-                -o {params.outprefix}
         """
+
+
+# rule call_rsvab:
+#     input:
+#         alignstats=lambda _: expand('results/summary/{target}_alignstats.txt',target=get_valid_targets()),
+#     output:
+#         catstats=temporary('results/summary/cat_alignstats.txt'),
+#         alignstats='results/summary/final_alignstats.txt',
+#         calls='results/summary/final_calls.txt'
+#     container: "docker://sethnr/pgcoe_analysis:0.01"
+#     params:
+#         mincov=0.8,
+#         minratio=0.95,
+#         outprefix='results/summary/final'
+#     shell:
+#         """
+#         cat {input.alignstats} > {output.catstats}
+
+#         python scripts/call_RSVAB.py -i {output.catstats} \
+#                 -c {params.mincov} \
+#                 -r {params.minratio} \
+#                 -o {params.outprefix}
+#         """
 
