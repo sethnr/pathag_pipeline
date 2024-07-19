@@ -95,7 +95,7 @@ rule merge_alignstats:
     input:
         alignstats=lambda _: expand('results/summary/{target}_alignstats.txt',target=get_valid_targets()),
     output:
-        catstats='results/summary/final_alignstats.txt'),
+        catstats='results/summary/final_alignstats.txt',
     container: "docker://sethnr/pgcoe_analysis:0.01"
     params:
         mincov=0.8,
