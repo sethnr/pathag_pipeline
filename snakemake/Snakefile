@@ -1,0 +1,119 @@
+import os
+import sys
+
+configfile: "config/config.yaml"
+include:    "rules/common.py"
+container:  "docker://sethnr/pgcoe_processing:0.01"
+
+
+SAMPLES = [line.strip() for line in open(config['samples'], 'r')]
+TARGETS = [line.strip() for line in open(config['refs'], 'r')]
+
+wildcard_constraints:
+    sample="[^_]+",
+    target="[^_]+"
+
+localrules: all, get_ivar_report
+
+rule all:
+    input:
+        alignstats=lambda _: expand('results/summary/{target}_alignstats.txt',target=get_valid_targets() ),
+        ivar=lambda _: expand("results/summary/{target}_consensus.fasta",target=get_valid_targets() ),
+        bcf=lambda _: expand("results/summary/{target}_genotype-summary.txt",target=get_valid_targets() ),
+        finalcalls='results/summary/final_calls.txt',
+        finalstats='results/summary/final_alignstats.txt',
+        ampdepths=lambda _: expand("results/summary/{target}_stats",target=get_valid_targets() ),
+        
+
+
+
+
+include: "rules/mash.smk"
+
+include: "rules/align.smk"
+
+include: "rules/ivar.smk"
+
+include: "rules/call.smk"
+
+include: "rules/stats.smk"
+
+
+
+
+
+
+
+rule get_div_metrics:
+    input:
+        pileupvcf='results/call/{target}_filt.vcf.gz',
+        depth='results/align/{target}_depths.txt',
+        primers=os.path.join(config['refsdir']+'{target}.bed'),
+    output:
+        expand('results/summary/{{target}}_{site}_{metric}.tsv',
+               site=["primers"],metric=["meandp","covpc","pi"]),
+    container: "docker://sethnr/pgcoe_analysis:0.01"
+    params:
+        ppprefix='results/summary/{target}_primer-stats',
+        paprefix='results/summary/{target}_amplicon-stats',
+    shell:
+        """
+        python scripts/get_pidp_ranges.py --vcf {input.pileupvcf} --depth {input.depth} --bed {input.primers} --out {params.ppprefix}
+        """
+
+rule get_ivar_report:
+    input:
+        ivariants=lambda wildcards: expand('results/ivar/{sample}_{{target}}_ivariants.tsv',sample=get_mash_samples(wildcards)),
+        iconsensus=lambda wildcards: expand('results/ivar/{sample}_{{target}}_consensus.fa',sample=get_mash_samples(wildcards)),
+    output:
+        report='results/summary/{target}_ivar-summary.txt',
+        consensus='results/summary/{target}_consensus.fasta',
+    shell:
+        """
+        cat {input.iconsensus} > {output.consensus}
+        touch {output.report}
+        """
+
+rule get_genotyping_report:
+    input:
+        ivariants='results/bcftools/{target}_all.vcf.gz',
+        ivariants_untrim='results/bcftools/{target}_untrim_all.vcf.gz',
+        primers=os.path.join(config['refsdir']+'{target}.bed'),
+    output:
+        report='results/summary/{target}_genotype-summary.txt',
+        pi='results/summary/{target}_primer-pi.tsv',
+        pi_untrim='results/summary/{target}_untrim-primer-pi.tsv',
+    container: "docker://sethnr/pgcoe_analysis:0.01"
+    params:
+        prefix='results/summary/{target}_primer',
+        prefix_untrim='results/summary/{target}_untrim-primer',
+    shell:
+        """
+        touch {output.report}
+        python scripts/get_pi_ranges.py --vcf {input.ivariants} --bed {input.primers} --out {params.prefix}
+        python scripts/get_pi_ranges.py --vcf {input.ivariants_untrim} --bed {input.primers} --out {params.prefix_untrim}
+        """
+
+rule call_rsvab:
+    input:
+        alignstats=lambda _: expand('results/summary/{target}_alignstats.txt',target=get_valid_targets()),
+    output:
+        catstats=temporary('results/summary/cat_alignstats.txt'),
+        alignstats='results/summary/final_alignstats.txt',
+        calls='results/summary/final_calls.txt'
+    container: "docker://sethnr/pgcoe_analysis:0.01"
+    params:
+        mincov=0.8,
+        minratio=0.95,
+        metadata=config['nsmetadata'],
+        outprefix='results/summary/final'
+    shell:
+        """
+        cat {input.alignstats} > {output.catstats}
+
+        python scripts/call_RSVAB.py -i {output.catstats} \
+                -c {params.mincov} \
+                -r {params.minratio} \
+                -o {params.outprefix}
+        """
+

@@ -1,0 +1,7 @@
+docker build ./ -t sethnr/pgcoe_anypipe:0.01
+
+#nb will not find bioconda repos on os x M2 build
+#explicitly set linux64 arch:
+docker build --platform linux/amd64 -t sethnr/pgcoe_analysis:0.01 ./
+
+docker push sethnr/pgcoe_anypipe:0.01

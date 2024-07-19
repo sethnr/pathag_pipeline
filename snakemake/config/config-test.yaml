@@ -1,0 +1,8 @@
+samples: '../../testdata/test_samples.txt'
+readdir: '../../testdata/'
+runname: 'rsvtest'
+refs:    '../../refs/refs.txt'
+refsdir: '../../refs/'
+primers: '../../primers'
+outdir: 'results' 
+maxfq_gb: 1

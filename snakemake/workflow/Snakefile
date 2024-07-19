@@ -1,0 +1,245 @@
+import os
+import sys
+import datetime as dt
+import shutil
+
+sys.path.insert(0, Path(workflow.basedir).parent.as_posix())
+
+from pathag_pipeline.utils import misc
+import scripts.visualisations as visualisations
+import scripts.make_summary_files as make_summary_files
+
+cwd = os.getcwd()
+
+wildcard_constraints:
+    indir=config["indir"],
+    tmpdir=config["tempdir"],
+    outdir=config["outdir"],
+    sample="\w+"
+    
+TARGETS = [line.strip() for line in open("{refdir}/refs.txt".format(refdir=config['reference_directory']), 'r')]
+# TARGETS, = glob_wildcards(os.path.join(config["reference_directory"],"{target}.fasta"))
+
+rule all: 
+    input:
+        os.path.join(config["outdir"], "results/summary", "virus_calls.tsv"),
+        os.path.join(config["outdir"], "results/summary", "variant_plot.pdf")
+
+checkpoint callstrain:
+    input:
+        msh = os.path.join(config["reference_directory"],"all.msh"),
+	read_location = os.path.join(config["indir"], "{sample}")
+    output:
+        mashout = "{outdir}/results/mash/{sample}_mash.txt",
+        mashcalls = "{outdir}/results/mash/{sample}_calls.txt"
+    resources:
+        partition="day",
+        mem_mb="8G",
+        cpus_per_task=1,
+        runtime=300
+    container: "docker://sethnr/pgcoe_anypipe:0.01"
+    params:
+        reads=10000, # compare top N reads to refs
+        bloom=10,    # bloom filter kmers with < N coverage (seq errors)
+        gsize="11k", # estimated genome size (for prob assignment)
+        prob=1e-50,  # max mash prob to call
+        dist=0.25,   # max mash dist to call
+    	masher = os.path.join(config['workflow_directory'],"scripts","masher.sh"),
+        prefix="{outdir}/results/mash/{sample}",
+	refdir=config["reference_directory"],
+    log: 
+        "{outdir}/log_files/getstrain_{sample}.log", 
+    shell:
+        """
+        {params.masher} -f {params.refdir}/all.msh \
+		-r {params.reads} -b {params.bloom} -g {params.gsize} \
+		-d {params.dist} -p {params.prob} \
+        -o {params.prefix} \
+        {input.read_location}  2>{log}
+        """
+
+
+def get_sample_strains(wildcards):
+    with checkpoints.callstrain.get(sample=wildcards.sample,outdir=wildcards.outdir).output.mashcalls.open() as f:
+        mytargets = f.read().splitlines()
+    return mytargets
+
+def get_sample_bams(wildcards):
+    mytargets = get_sample_strains(wildcards)
+    return expand(os.path.join(wildcards.outdir,"bams","{sample}_{target}.bam",sample=wildcards.sample,target=mytargets))
+
+
+rule indexbwa:
+    input:
+        fasta = os.path.join(config["reference_directory"],"{target}.fasta")
+    output:
+        bwt = os.path.join(config["reference_directory"],"{target}.fasta.bwt")
+    log:
+        log = os.path.join(config["outdir"], "log_files", "_".join(["{target}", "index.bwa.log"]))
+    params:
+        idx_script = os.path.join(config['workflow_directory'],"scripts","indexer.sh"),
+        primer_dir = config["reference_directory"],
+    resources:
+        partition="day",
+        mem_mb="40G",
+        cpus_per_task=4,
+        runtime=300
+    container: "docker://sethnr/pgcoe_anypipe:0.01"
+    shell:"""
+	{params.idx_script} \
+                -C {resources.cpus_per_task} \
+                {input.fasta} >> {log.log} 2>&1
+	    """
+
+
+rule indexmash:
+    input:
+        fastas = expand(os.path.join(config["reference_directory"],"{target}.fasta"),target=TARGETS),
+    output:
+        msh = os.path.join(config["reference_directory"],"all.msh")
+    log:
+        log = os.path.join(config["outdir"], "log_files", "index.mash.log")
+    params:
+        idx_script = os.path.join(config['workflow_directory'],"scripts","indexer.sh"),
+        genome_size = "11k",
+	refdir=config["reference_directory"],
+	localfastas=expand("{target}.fasta",target=TARGETS)
+    resources:
+        partition="day",
+        mem_mb="40G",
+        cpus_per_task=4,
+        runtime=300
+    container: "docker://sethnr/pgcoe_anypipe:0.01"
+    shell:"""
+	cd {params.refdir};
+	{params.idx_script} \
+                -m {output.msh} -g {params.genome_size} \
+                {params.localfastas} >> {log.log} 2>&1
+	    """
+
+
+rule mapper:
+    input:
+        read_location = os.path.join(config["indir"], "{sample}"),
+        fasta = os.path.join(config["reference_directory"],"{target}.fasta"),
+        bwt = os.path.join(config["reference_directory"],"{target}.fasta.bwt")
+    output:
+        bam = os.path.join("{outdir}","results","bams","{sample}.{target}.bam")
+    log:
+        log = os.path.join("{outdir}", "log_files", "_".join(["{sample}","{target}", "mapping.log"]))
+    params:
+        mapper_script = os.path.join(config['workflow_directory'],"scripts","mapper.sh"),
+        primer_dir = config["reference_directory"],
+	tmpdir=os.path.join(config["outdir"],"results", "bams"),
+    resources:
+        partition="day",
+        mem_mb="40G",
+        cpus_per_task=4,
+        runtime=300
+    container: "docker://sethnr/pgcoe_anypipe:0.01"
+    shell:"""
+	if [ -f {input.read_location}/*R1* ]; then 
+            {params.mapper_script}  -t {wildcards.target} \
+                -n {wildcards.sample} -p {params.primer_dir}  \
+                -C {resources.cpus_per_task} -T {params.tmpdir} -L {log.log} \
+                {input.read_location}/*R1* {input.read_location}/*R2* \
+                 >> {log.log} 2>&1;
+        else
+            {params.mapper_script}  -t {wildcards.target} \
+                -n {wildcards.sample} -p {params.primer_dir}  \
+                -C {resources.cpus_per_task} -T {params.tmpdir} -L {log.log} \
+                {input.read_location}/Unaligned/*R1* {input.read_location}/Unaligned/*R2* \
+                 >> {log.log} 2>&1;
+        fi
+	    """
+
+
+rule caller:
+    input:
+        bams = lambda wildcards: expand(os.path.join(wildcards.outdir,"results","bams","{{sample}}.{target}.bam"),target=get_sample_strains(wildcards)),
+        mashcalls = os.path.join("{outdir}","results","mash","{sample}_calls.txt"),
+    output:
+        individual_all_virustype_info = "{outdir}/results/align/{sample}_all_virustype_info.txt"
+    log:
+        log = "{outdir}/log_files/{sample}_mapping.log"
+    params:
+        caller_script = os.path.join(config['workflow_directory'],"scripts","caller.sh"),
+        depth = config["depth"],
+        threshold = config["threshold"],
+        #tempdir = config["tempdir"],
+        indir=os.path.join(config["outdir"],"results" ,"bams"),
+        outdir=os.path.join(config["outdir"], "results"),
+        primer_dir = config["reference_directory"],
+        python_script = os.path.join(config['workflow_directory'],"scripts","serotype_caller.py"),
+        python_script2 = os.path.join(config['workflow_directory'],"scripts", "make_empty_files.py")
+    resources:
+        partition="day",
+        mem_mb="40G",
+        cpus_per_task=4,
+        runtime=300
+    container: "docker://sethnr/pgcoe_anypipe:0.01"
+    shell:"""
+	{params.caller_script}  -c {input.mashcalls}  -p {params.primer_dir} \
+                -n {wildcards.sample} -s {params.python_script} \
+                -e {params.python_script2} -d {params.depth} -t {params.threshold} \
+                -C {resources.cpus_per_task} -I {params.indir} -O {params.outdir} -L {log.log} \
+                 >> {log.log} 2>&1
+        
+        if ! [-f "{params.outdir}/align/{wildcards.sample}_all_virustype_info.txt"]; then 
+            touch {params.outdir}/align/{wildcards.sample}_all_virustype_info.txt
+	fi
+	    """
+
+
+rule summary:
+    input:
+        individual_all_virustype_info = expand(os.path.join("{{outdir}}","results","align", "{sample}_all_virustype_info.txt"), sample=config["sample_list"])
+    output:
+        serotype_calls =       os.path.join("{outdir}","results","summary","virus_calls.tsv"),
+        all_serotype_summary = os.path.join("{outdir}","results","summary","summary_all_samples.tsv"),
+        top_serotype_summary = os.path.join("{outdir}","results","summary","top_virus_all_samples.tsv"),
+        variant_summary_file = os.path.join("{outdir}","results","summary","variants_summary.tsv")
+    params:
+        results_dir =   os.path.join("{outdir}","results"),
+        python_script = os.path.join(config['workflow_directory'],"scripts","make_summary_files.py")
+    run:        
+        print("summarising files")
+        make_summary_files.summarise_files(config, 
+                                                   input.individual_all_virustype_info, 
+                                                   output.serotype_calls, 
+                                                   output.top_serotype_summary, 
+                                                   output.all_serotype_summary)
+        
+        if config["download"]:
+            for directory in os.listdir(params.results_dir):
+                if directory != "bam_files":
+                    source = os.path.join(params.results_dir, directory)
+                    dest = os.path.join("{wildcards.outdir}", "downloads")
+                    shell("cp -r {source} {dest}")
+
+        #if not config["temp"]:
+        #    shutil.rmtree(config["tempdir"])
+
+rule make_qc_plots:
+    input:
+        serotype_calls_file = rules.summary.output.serotype_calls,
+        variant_summary_file = rules.summary.output.variant_summary_file
+    output:
+        variant_plot = os.path.join("{outdir}", "results","summary", "variant_plot.pdf")
+    params:
+        results_dir = rules.summary.params.results_dir
+    run:
+        serotype_dict, colour_dict, patch_list = visualisations.prepare_for_plots(input.serotype_calls_file)
+        
+        visualisations.variant_plot(params.results_dir, input.variant_summary_file, serotype_dict, colour_dict, patch_list)
+        if config["download"]:
+            source = os.path.join(params.results_dir, "variant_plot.pdf")
+            dest = os.path.join(config["outdir"], "downloads")
+            shell("cp -r {source} {dest}")
+
+        if config["ct_file"] and config["ct_column"] and config["id_column"]:
+            visualisations.ct_plot(os.path.join(params.results_dir,"summary"), config["ct_file"], config["ct_column"], config["id_column"], input.serotype_calls_file, serotype_dict, colour_dict, patch_list)
+            if config["download"]:
+                source = os.path.join(params.results_dir, "ct_plot.pdf")
+                dest = os.path.join(config["outdir"], "downloads")
+                shell("cp -r {source} {dest}")
