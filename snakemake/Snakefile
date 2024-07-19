@@ -19,7 +19,6 @@ rule all:
     input:
         ivar=lambda _: expand("results/summary/{target}_consensus.fasta",target=get_valid_targets() ),
         bcf=lambda _: expand("results/summary/{target}_genotype-summary.txt",target=get_valid_targets() ),
-        finalcalls='results/summary/final_calls.txt',
         finalstats='results/summary/final_alignstats.txt',
         ampdepths=lambda _: expand("results/summary/{target}_stats",target=get_valid_targets() ),
         
