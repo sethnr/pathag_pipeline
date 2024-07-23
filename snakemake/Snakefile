@@ -73,7 +73,7 @@ rule get_ivar_report:
 rule get_genotyping_report:
     input:
         ivariants='results/bcftools/{target}_all.vcf.gz',
-        primers=os.path.join(config['refsdir']+'{target}.bed'),
+        primers=os.path.join(config['ampsdir']+'{target}.bed'),
     output:
         report='results/summary/{target}_genotype-summary.txt',
         pi='results/summary/{target}_primer-pi.tsv',
