@@ -173,7 +173,7 @@ rule depth_genes:
 
 rule div_amplicons:
     input:
-        vcf='results/bcftools/{target}_all.vcf.gz',
+        vcf='results/call/{target}_all.vcf.gz',
     output:
         div='results/summary/{target}_ampdiv.txt',
     resources:
@@ -191,7 +191,7 @@ rule div_amplicons:
 
 rule div_genes:
     input:
-        vcf='results/bcftools/{target}_all.vcf.gz',
+        vcf='results/call/{target}_all.vcf.gz',
     output:
         div='results/summary/{target}_genediv.txt',
     resources:
