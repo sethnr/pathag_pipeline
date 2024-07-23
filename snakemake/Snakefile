@@ -73,21 +73,17 @@ rule get_ivar_report:
 rule get_genotyping_report:
     input:
         ivariants='results/bcftools/{target}_all.vcf.gz',
-        ivariants_untrim='results/bcftools/{target}_untrim_all.vcf.gz',
         primers=os.path.join(config['refsdir']+'{target}.bed'),
     output:
         report='results/summary/{target}_genotype-summary.txt',
         pi='results/summary/{target}_primer-pi.tsv',
-        pi_untrim='results/summary/{target}_untrim-primer-pi.tsv',
     container: "docker://sethnr/pgcoe_analysis:0.01"
     params:
         prefix='results/summary/{target}_primer',
-        prefix_untrim='results/summary/{target}_untrim-primer',
     shell:
         """
         touch {output.report}
         python scripts/get_pi_ranges.py --vcf {input.ivariants} --bed {input.primers} --out {params.prefix}
-        python scripts/get_pi_ranges.py --vcf {input.ivariants_untrim} --bed {input.primers} --out {params.prefix_untrim}
         """
 
 rule merge_alignstats:

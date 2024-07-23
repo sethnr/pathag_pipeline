@@ -8,7 +8,7 @@ rule ivar_pipeline:
 rule ivar_primerclip:
     input:
         aligned = 'results/align/{sample}_{target}.bam',
-        primers = os.path.join(config['refsdir']+'{target}.bed'),
+        primers = os.path.join(config['ampsdir']+'{target}.bed'),
     output:
         trimmed_us=temporary('results/ivar/{sample}_{target}_itrim_us.bam'),
         trimmed='results/ivar/{sample}_{target}_itrim.bam',

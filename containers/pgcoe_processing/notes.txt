@@ -1,6 +1,6 @@
-docker build ./ -t sethnr/pgcoe_bacseq:0.01
+docker build ./ -t sethnr/pgcoe_processing:0.01
 
 #nb will not find bioconda repos on os x M2 build; explicitly set linux64 arch:
-docker build --platform linux/amd64 -t sethnr/pgcoe_bacseq:0.01 ./
+docker build --platform linux/amd64 -t sethnr/pgcoe_processing:0.01 ./
 
-docker push sethnr/pgcoe_bacseq:0.01
+docker push sethnr/pgcoe_processing:0.01
