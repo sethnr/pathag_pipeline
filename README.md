@@ -7,8 +7,12 @@ The pipeline is fully containerised and *should* require only snakemake and appt
 We recomend that this archive is used as a skeleton for further development of pathogen-specific pipelines. To begin this, first generate your new github, then either: 
 
 a) clone this archive, copy all files to your new github, and commit
-or
+
+  or
+
 b) add this archive as a second remote and perform a one-way pull, as follows:
+```
   git remote add upstream git@github.com:sethnr/pathag_pipeline.git
   git pull upstream main --allow-unrelated-histories
   git pull upstream main
+```
